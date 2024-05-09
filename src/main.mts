@@ -5,7 +5,8 @@ const SUBGRAPH_URLS: Record<string, { decentralized: string }> = {
   // Ethereum Mainnet
   "1": {
     decentralized:
-      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmQBvtHaTS9MftEWYTSmbbmPqzXtMpgZRidivvEaELSKsc", // Opensea v1 Subgraph deployment for Ethereum Mainnet, by Messari team
+      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmQBvtHaTS9MftEWYTSmbbmPqzXtMpgZRidivvEaELSKsc", // Opensea Seaport subgraph as seen here https://thegraph.com/explorer/subgraphs/2GmLsgYGWoFoouZzKjp8biYDkfmeLTkEY3VDQyZqSJHA?view=Overview&chain=arbitrum-one
+      //As trustworthy subgraphs indexing NFT collections are limited on The Graph's decentralized network, this module can be updated or removed once there is a subgraph out there that has a more complete picture of all NFTs on the market.
   },
 };
 
