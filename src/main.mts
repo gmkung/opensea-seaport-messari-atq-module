@@ -5,37 +5,19 @@ const SUBGRAPH_URLS: Record<string, { decentralized: string }> = {
   // Ethereum Mainnet
   "1": {
     decentralized:
-      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmZeCuoZeadgHkGwLwMeguyqUKz1WPWQYKcKyMCeQqGhsF", // Ethereum deployment, by Uniswap team
+      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmQBvtHaTS9MftEWYTSmbbmPqzXtMpgZRidivvEaELSKsc", // Opensea v1 Subgraph deployment for Ethereum Mainnet, by Messari team
   },
-  "137": {
-    decentralized:
-      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmdAaDAUDCypVB85eFUkQMkS5DE1HV4s7WJb6iSiygNvAw", // Polygon deployment, same as the latest deployment ID as of 8-5-2024 on https://thegraph.com/hosted-service/subgraph/ianlapham/uniswap-v3-polygon, which is used on info.uniswap.org
-  },
-  "10": {
-    decentralized:
-      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmbTaWMFk4baXnoKQodnyYsFVKFNEiLsgZAe6eu2Sdj8Ef",
-  }, // Optimism deployment, same as the latest deployment ID as of 8-5-2024 on https://thegraph.com/hosted-service/subgraph/ianlapham/optimism-post-regenesis , which is used on info.uniswap.org
-  "42220": {
-    decentralized:
-      "https://gateway-arbitrum.network.thegraph.com/api/[api-key]/deployments/id/QmXfJmxY7C4A4UoWEexvei8XzcSxMegr78rt3Rzz8szkZA",
-  }, // Celo deployment, same as the latest deployment ID as of 8-5-2024 on https://thegraph.com/hosted-service/subgraph/jesse-sawa/uniswap-celo, which is used on info.uniswap.org
 };
 
-interface PoolToken {
+interface Collection {
   id: string;
   name: string;
   symbol: string;
-}
-
-interface Pool {
-  id: string;
-  createdAtTimestamp: number;
-  token0: PoolToken;
-  token1: PoolToken;
+  nftStandard: string;
 }
 
 interface GraphQLData {
-  pools: Pool[];
+  collections: Collection[];
 }
 
 interface GraphQLResponse {
@@ -48,26 +30,18 @@ const headers: Record<string, string> = {
   Accept: "application/json",
 };
 
-const GET_POOLS_QUERY = `
-query GetPools($lastTimestamp: Int) {
-  pools(
+const GET_COLLECTIONS_QUERY = `
+query GetCollections($lastId: String) {
+  collections(
     first: 1000,
-    orderBy: createdAtTimestamp,
+    orderBy: id,
     orderDirection: asc,
-    where: { createdAtTimestamp_gt: $lastTimestamp }
+    where: { id_gt: $lastId }
   ) {
     id
-    createdAtTimestamp
-    token0 {
-      id
-      name
-      symbol
-    }
-    token1 {
-      id
-      name
-      symbol
-    }
+    name
+    symbol
+    nftStandard
   }
 }
 `;
@@ -86,20 +60,19 @@ function containsHtmlOrMarkdown(text: string): boolean {
   if (/<[^>]*>/.test(text)) {
     return true;
   }
-
   return false;
 }
 
 async function fetchData(
   subgraphUrl: string,
-  lastTimestamp: number
-): Promise<Pool[]> {
+  lastId: string
+): Promise<Collection[]> {
   const response = await fetch(subgraphUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({
-      query: GET_POOLS_QUERY,
-      variables: { lastTimestamp },
+      query: GET_COLLECTIONS_QUERY,
+      variables: { lastId },
     }),
   });
 
@@ -115,11 +88,11 @@ async function fetchData(
     throw new Error("GraphQL errors occurred: see logs for details.");
   }
 
-  if (!result.data || !result.data.pools) {
-    throw new Error("No pools data found.");
+  if (!result.data || !(Object.keys(result.data).length > 0)) {
+    throw new Error("No data found.");
   }
 
-  return result.data.pools;
+  return result.data.collections;
 }
 
 function prepareUrl(chainId: string, apiKey: string): string {
@@ -141,69 +114,49 @@ function truncateString(text: string, maxLength: number) {
   return text;
 }
 
-// Local helper function used by returnTags
-interface Token {
-  id: string;
-  name: string;
-  symbol: string;
-}
-
-interface Pool {
-  id: string;
-  createdAtTimestamp: number;
-  token0: Token;
-  token1: Token;
-}
-
-function transformPoolsToTags(chainId: string, pools: Pool[]): ContractTag[] {
+function transformCollectionsToTags(
+  chainId: string,
+  collections: Collection[]
+): ContractTag[] {
   // First, filter and log invalid entries
-  const validPools: Pool[] = [];
-  const rejectedNames: string[] = [];
+  const validCollections: Collection[] = [];
+  const rejectedCollections: string[] = [];
 
-  pools.forEach((pool) => {
-    const token0Invalid =
-      containsHtmlOrMarkdown(pool.token0.name) ||
-      containsHtmlOrMarkdown(pool.token0.symbol);
-    const token1Invalid =
-      containsHtmlOrMarkdown(pool.token1.name) ||
-      containsHtmlOrMarkdown(pool.token1.symbol);
+  collections.forEach((collection) => {
+    const nftNameInvalid =
+      containsHtmlOrMarkdown(collection.name) ||
+      containsHtmlOrMarkdown(collection.symbol) ||
+      containsHtmlOrMarkdown(collection.nftStandard) ||
+      collection.symbol == null ||
+      collection.name == null;
 
-    if (token0Invalid || token1Invalid) {
-      if (token0Invalid) {
-        rejectedNames.push(
-          pool.token0.name + ", Symbol: " + pool.token0.symbol
-        );
-      }
-      if (token1Invalid) {
-        rejectedNames.push(
-          pool.token1.name + ", Symbol: " + pool.token1.symbol
-        );
-      }
+    if (nftNameInvalid) {
+      rejectedCollections.push(JSON.stringify(collection));
     } else {
-      validPools.push(pool);
+      validCollections.push(collection);
     }
   });
 
   // Log all rejected names
-  if (rejectedNames.length > 0) {
+  if (rejectedCollections.length > 0) {
     console.log(
-      "Rejected token names due to HTML/Markdown content:",
-      rejectedNames
+      "Rejected collections due to HTML/Markdown content:",
+      rejectedCollections
     );
   }
 
-  // Process valid pools into tags
-  return validPools.map((pool) => {
-    const maxSymbolsLength = 45;
-    const symbolsText = `${pool.token0.symbol}/${pool.token1.symbol}`;
+  // Process valid collections into tags
+  return validCollections.map((collection) => {
+    const maxSymbolsLength = 35;
+    const symbolsText = `${collection.name} (${collection.symbol})`;
     const truncatedSymbolsText = truncateString(symbolsText, maxSymbolsLength);
 
     return {
-      "Contract Address": `eip155:${chainId}:${pool.id}`,
-      "Public Name Tag": `${truncatedSymbolsText} Pool`,
-      "Project Name": "Uniswap v3",
-      "UI/Website Link": "https://uniswap.org",
-      "Public Note": `The liquidity pool contract on Uniswap v3 for the ${pool.token0.name} (${pool.token0.symbol}) / ${pool.token1.name} (${pool.token1.symbol}) pair.`,
+      "Contract Address": `eip155:${chainId}:${collection.id}`,
+      "Public Name Tag": `${truncatedSymbolsText} NFT Collection`,
+      "Project Name": "Opensea",
+      "UI/Website Link": `https://opensea.io/assets/ethereum/${collection.id}`,
+      "Public Note": `The ${collection.nftStandard} contract for the ${collection.name} (${collection.symbol}) NFT collection.`,
     };
   });
 }
@@ -215,23 +168,21 @@ class TagService implements ITagService {
     chainId: string,
     apiKey: string
   ): Promise<ContractTag[]> => {
-    let lastTimestamp: number = 0;
+    let lastId: string = "0";
     let allTags: ContractTag[] = [];
     let isMore = true;
-
+    let loop = 0;
     const url = prepareUrl(chainId, apiKey);
 
     while (isMore) {
       try {
-        const pools = await fetchData(url, lastTimestamp);
-        allTags.push(...transformPoolsToTags(chainId, pools));
-
-        isMore = pools.length === 1000;
+        const collections = await fetchData(url, lastId);
+        allTags.push(...transformCollectionsToTags(chainId, collections));
+        loop++;
+        console.log(`First ${loop * 1000} entries queried...`);
+        isMore = collections.length === 1000;
         if (isMore) {
-          lastTimestamp = parseInt(
-            pools[pools.length - 1].createdAtTimestamp.toString(),
-            10
-          );
+          lastId = collections[collections.length - 1].id.toString();
         }
       } catch (error) {
         if (isError(error)) {
